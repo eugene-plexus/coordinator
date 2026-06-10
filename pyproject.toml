@@ -1,0 +1,118 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "eugene-plexus-coordinator"
+version = "0.1.0"
+description = "Control plane for the Eugene Plexus local-LLM-training platform. Owns the TrainingProject aggregate and sequences pipeline runs across components. v0.3 skeleton ships the control-plane wire shape; the pipeline-execution engine is future work."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.12"
+authors = [
+    { name = "Eugene Plexus contributors" },
+]
+keywords = ["eugene-plexus", "coordinator", "fastapi", "consciousness"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: FastAPI",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.32,<1",
+    "pydantic>=2.9,<3",
+    "pydantic-settings>=2.6,<3",
+    "pyyaml>=6.0,<7",
+    "pyjwt>=2.9,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.4.2",
+    "pytest-asyncio==0.26.0",
+    "httpx>=0.27,<1",          # for FastAPI test client
+    "ruff==0.15.14",
+    "mypy==1.20.2",
+    "types-pyyaml>=6,<7",
+    "datamodel-code-generator==0.57.0",
+]
+
+[project.scripts]
+eugene-plexus-coordinator = "eugene_plexus_coordinator.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/eugene-plexus"
+Repository = "https://github.com/eugene-plexus/coordinator"
+Specs = "https://github.com/eugene-plexus/specs"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/eugene_plexus_coordinator"]
+
+# -----------------------------------------------------------------------------
+# Ruff (linter + formatter)
+# -----------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [
+    "src/eugene_plexus_coordinator/_generated",
+]
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",   # pycodestyle / pyflakes
+    "I",             # isort
+    "B",             # bugbear
+    "UP",            # pyupgrade
+    "ASYNC",         # async-correctness
+    "SIM",           # simplifications
+    "RUF",
+]
+ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["E501"]
+# FastAPI uses Depends() as an argument default, which is the framework's
+# idiom for dependency injection but trips ruff's "no function calls in
+# defaults" rule. Allow it only in the dependency module that defines them.
+"src/eugene_plexus_coordinator/dependencies.py" = ["B008"]
+# Same FastAPI-idiom story: Query() in argument defaults.
+"src/eugene_plexus_coordinator/routes/coordinator.py" = ["B008"]
+
+# -----------------------------------------------------------------------------
+# Mypy
+# -----------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+# call-arg is disabled because mypy doesn't recognize pydantic's
+# `field: T = Field(default, ...)` defaults — every optional codegen'd
+# Pydantic field is reported as missing at the call site otherwise. We
+# keep call-arg's mistype-detection role through ruff.
+disable_error_code = ["call-arg"]
+warn_unused_configs = true
+warn_unused_ignores = true
+warn_return_any = true
+warn_redundant_casts = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+check_untyped_defs = true
+exclude = [
+    "src/eugene_plexus_coordinator/_generated",
+]
+
+[[tool.mypy.overrides]]
+module = "eugene_plexus_coordinator._generated.*"
+ignore_errors = true
+
+# -----------------------------------------------------------------------------
+# Pytest
+# -----------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-ra --strict-markers"
