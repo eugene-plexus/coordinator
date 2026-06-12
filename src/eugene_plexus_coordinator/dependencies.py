@@ -1,6 +1,6 @@
 """FastAPI dependencies for v0.2 bearer auth.
 
-Identical shape to the orchestrator and hemisphere-driver dependency
+Identical shape to the other platform components' dependency
 modules: `require_authorized` accepts operator OR any `service:*`
 audience; `require_operator` accepts operator only. Both pass-through
 when `AuthState.auth_disabled` is true (the dev path).

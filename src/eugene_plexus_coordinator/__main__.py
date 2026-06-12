@@ -26,7 +26,7 @@ def main() -> None:
     env_port = os.environ.get("EUGENE_PLEXUS_CRD_BIND_PORT")
     port = int(env_port) if env_port else _DEFAULT_PORT
 
-    # See orchestrator/hemisphere-driver __main__ for the rationale.
+    # See the other platform components' __main__ for the rationale.
     # uvicorn only touches its own loggers; basicConfig with force=True
     # gives our application warnings/info a timestamp + level + logger
     # name so they're scannable in the watchdog's combined log.

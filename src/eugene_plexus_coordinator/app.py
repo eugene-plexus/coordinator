@@ -12,6 +12,7 @@ from . import __version__
 from .auth_state import load_auth_state
 from .config import ConfigStore
 from .dependencies import require_authorized, require_operator
+from .engine import PipelineEngine
 from .routes import admin as admin_routes
 from .routes import config as config_routes
 from .routes import coordinator as coordinator_routes
@@ -21,14 +22,13 @@ from .store import ProjectStore
 
 log = logging.getLogger(__name__)
 
-# The v0.3 skeleton ships no pipeline-execution engine. `app.state.engine`
-# stays None and pipeline-control routes (start/cancel/events) return 501;
-# `engine_error` explains why in /healthz details. Project CRUD is real
-# (in-memory store), so the wire shape is fully exercised — only the
-# cross-component sequencing is future work.
-_SKELETON_ENGINE_ERROR = (
-    "pipeline-execution engine not implemented in the v0.3 skeleton; "
-    "pipeline start/cancel/events return 501 (project CRUD is live)"
+# In safe mode (or if the engine fails to build) `app.state.engine` is None:
+# pipeline-control routes return 503 and /healthz reports `degraded` with this
+# explanation in its details. Project CRUD stays live regardless.
+_SAFE_MODE_ENGINE_ERROR = (
+    "pipeline-execution engine disabled in safe mode "
+    "(EUGENE_PLEXUS_CRD_SAFE_MODE=1); pipeline start/cancel/events return 503. "
+    "Fix config via /v1/config, then restart without the env var."
 )
 
 
@@ -65,17 +65,39 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     if not hasattr(app.state, "project_store"):
         app.state.project_store = ProjectStore()
 
-    # The pipeline-execution engine is future work. We wire `app.state.engine`
-    # (None for now) and an explanatory `engine_error` so /healthz reports
-    # `degraded` and the pipeline-control routes have a uniform place to
-    # check. When the engine is implemented this is where it gets built —
-    # and a build failure here surfaces as degraded mode instead of
-    # crashing the process, per feedback_degraded_mode_required.md.
+    # Build the pipeline-execution engine. In safe mode it stays None
+    # (pipeline routes 503, /healthz degraded); any build failure degrades the
+    # same way instead of crashing the process, per
+    # feedback_degraded_mode_required.md. Tests may pre-populate
+    # `app.state.engine` to inject a fake-peer engine.
     if not hasattr(app.state, "engine"):
-        app.state.engine = None
-        app.state.engine_error = _SKELETON_ENGINE_ERROR
+        if settings.safe_mode:
+            app.state.engine = None
+            app.state.engine_error = _SAFE_MODE_ENGINE_ERROR
+        else:
+            try:
+                # Tests may pre-set `peer_client_override` (a fake peer client)
+                # and `engine_overrides` (fast poll/timeout) on app.state.
+                overrides = getattr(app.state, "engine_overrides", None) or {}
+                engine = PipelineEngine(
+                    config_store,
+                    client=getattr(app.state, "peer_client_override", None),
+                    service_token=app.state.auth_state.service_token,
+                    **overrides,
+                )
+                engine.recover()
+                app.state.engine = engine
+                app.state.engine_error = None
+            except Exception as e:  # degrade, never crash on build
+                log.exception("pipeline engine failed to initialize; degrading")
+                app.state.engine = None
+                app.state.engine_error = f"pipeline engine failed to initialize: {e}"
 
     yield
+
+    built_engine = getattr(app.state, "engine", None)
+    if built_engine is not None:
+        built_engine.shutdown()
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:

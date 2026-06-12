@@ -23,10 +23,9 @@ _RESTART_DELAY_MS = 500
 async def restart() -> RestartResult:
     """Schedule a process exit so a supervisor can relaunch with new config.
 
-    Mirrors the orchestrator/hemisphere-driver restart endpoints. The
-    coordinator only re-reads `requiresRestart: true` config keys
-    (logLevel, port, …) at startup; this is the UI's mechanism for
-    completing a config-change flow.
+    The shared platform restart endpoint. The coordinator only re-reads
+    `requiresRestart: true` config keys (logLevel, projectStorePath, …) at
+    startup; this is the UI's mechanism for completing a config-change flow.
     """
     log.warning("restart requested via /v1/admin/restart; exiting in %dms", _RESTART_DELAY_MS)
 

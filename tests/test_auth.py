@@ -1,8 +1,8 @@
 """Tests for v0.2 bearer auth on the coordinator component.
 
-Same verify-only pattern as orchestrator and hemisphere-driver. Tests
-mint JWTs directly with PyJWT against a known signing key (standing in
-for the watchdog) and assert the dependency layer accepts/rejects the
+Same verify-only bearer-auth pattern the other platform components use.
+Tests mint JWTs directly with PyJWT against a known signing key (standing
+in for the watchdog) and assert the dependency layer accepts/rejects the
 right shapes.
 """
 

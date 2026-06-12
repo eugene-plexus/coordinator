@@ -5,7 +5,7 @@ the per-restart HMAC signing key and distributes it via env var
 (`EUGENE_PLEXUS_CRD_AUTH_SIGNING_KEY`). This module exposes just the
 decode side so route dependencies can validate inbound bearer tokens.
 
-Identical shape to the orchestrator and hemisphere-driver security
+Identical shape to the other platform components' security
 modules — keeping these nearly-identical makes the cross-cutting
 contract easy to audit at a glance.
 """

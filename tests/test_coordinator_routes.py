@@ -1,8 +1,10 @@
-"""Tests for the coordinator domain routes (v0.3 skeleton).
+"""Tests for the coordinator domain routes.
 
-Project CRUD is live (in-memory store); pipeline-control endpoints
-(start/cancel/events) return 501 (engine not implemented) and
-pipeline-run lookups 404 (no runs are ever created).
+Project CRUD (in-memory store) and the pipeline-control routes' validation
+paths (404 for unknown project/run, empty run list for a known project). The
+full pipeline-execution behavior — start/cancel/events against the engine —
+lives in test_pipeline.py, which configures all peers and drives worker
+threads to completion.
 """
 
 from __future__ import annotations
@@ -93,7 +95,7 @@ def test_delete_missing_project_returns_404(client: TestClient) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Pipeline runs (engine is future work)
+# Pipeline-run route validation (no worker threads spawned here)
 # --------------------------------------------------------------------------- #
 
 
@@ -110,32 +112,22 @@ def test_pipeline_runs_list_404_for_unknown_project(client: TestClient) -> None:
     assert response.status_code == 404
 
 
-def test_start_pipeline_returns_501_for_known_project(client: TestClient) -> None:
-    created = client.post("/v1/coordinator/projects", json=_project_body()).json()
-    project_id = created["projectId"]
-    response = client.post(f"/v1/coordinator/projects/{project_id}/pipeline")
-    assert response.status_code == 501
-    body = response.json()
-    assert body["component"] == "coordinator"
-    assert "not implemented" in body["detail"].lower()
-
-
 def test_start_pipeline_404_for_unknown_project(client: TestClient) -> None:
     response = client.post(f"/v1/coordinator/projects/{uuid4()}/pipeline")
     assert response.status_code == 404
 
 
-def test_get_pipeline_run_returns_404(client: TestClient) -> None:
+def test_get_pipeline_run_unknown_returns_404(client: TestClient) -> None:
     response = client.get(f"/v1/coordinator/pipeline-runs/{uuid4()}")
     assert response.status_code == 404
     assert response.json()["component"] == "coordinator"
 
 
-def test_cancel_pipeline_run_returns_501(client: TestClient) -> None:
+def test_cancel_pipeline_run_unknown_returns_404(client: TestClient) -> None:
     response = client.post(f"/v1/coordinator/pipeline-runs/{uuid4()}/cancel")
-    assert response.status_code == 501
+    assert response.status_code == 404
 
 
-def test_pipeline_events_returns_501(client: TestClient) -> None:
+def test_pipeline_events_unknown_returns_404(client: TestClient) -> None:
     response = client.get(f"/v1/coordinator/pipeline-runs/{uuid4()}/events")
-    assert response.status_code == 501
+    assert response.status_code == 404

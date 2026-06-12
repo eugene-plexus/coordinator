@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 
 from fastapi import APIRouter, Request
+from fastapi.concurrency import run_in_threadpool
 
 from .._generated.common_models import (
     ConfigDocument,
@@ -51,44 +52,62 @@ async def test_config(
     request: Request,
     body: ConfigTestRequest | None = None,
 ) -> ConfigTestResult:
-    """Report which peer components the coordinator is configured to route to.
+    """Probe each configured peer component's ``/healthz``.
 
-    The spec contract is "probe each peer's /healthz". The v0.3 skeleton
-    has no execution engine and makes no outbound calls, so it reports the
-    configured-vs-unconfigured peer set — the cheap, real part of the
-    contract — in the standard `ConfigTestResult` shape. The engine work
-    adds the live /healthz probe here.
+    Per the spec contract, the coordinator's config test reports which of its
+    routing targets (trainer/data/eval/inference) are reachable. The live
+    probe is delegated to the engine (blocking HTTP, run off the event loop);
+    when the engine is absent (safe mode) we fall back to reporting the
+    configured-vs-unconfigured set without probing.
     """
     start = time.perf_counter()
-    # Body overrides are accepted for protocol uniformity but the skeleton
-    # tests the saved config as-is; the engine work will honor overrides.
+    # Body overrides are accepted for protocol uniformity; the coordinator
+    # tests its saved config as-is.
     _ = body
     store: ConfigStore = request.app.state.config_store
 
-    configured: list[str] = []
-    for label, key in _PEER_KEYS:
-        if store.get(key):
-            configured.append(label)
-
-    elapsed_ms = int((time.perf_counter() - start) * 1000)
-
+    configured = [label for label, key in _PEER_KEYS if store.get(key)]
     if not configured:
         return ConfigTestResult(
             ok=False,
             component="coordinator",
-            latencyMs=elapsed_ms,
+            latencyMs=int((time.perf_counter() - start) * 1000),
             error=(
                 "No peer components configured. Set at least one of "
                 "trainerUrl/dataUrl/evalUrl/inferenceUrl so the coordinator "
                 "has a stage to delegate to."
             ),
         )
+
+    engine = getattr(request.app.state, "engine", None)
+    if engine is None:
+        return ConfigTestResult(
+            ok=False,
+            component="coordinator",
+            latencyMs=int((time.perf_counter() - start) * 1000),
+            error=(
+                "Coordinator is in safe mode / degraded; peer reachability "
+                f"was not probed. Configured peers: {', '.join(configured)}."
+            ),
+        )
+
+    probes = await run_in_threadpool(engine.probe_peers)
+    reachable = [p.label for p in probes if p.configured and p.reachable]
+    unreachable = [(p.label, p.detail) for p in probes if p.configured and not p.reachable]
+    elapsed_ms = int((time.perf_counter() - start) * 1000)
+
+    if unreachable:
+        detail = "; ".join(f"{label} ({why})" for label, why in unreachable)
+        return ConfigTestResult(
+            ok=False,
+            component="coordinator",
+            latencyMs=elapsed_ms,
+            error=f"Unreachable peer(s): {detail}.",
+            summary=f"Reachable: {', '.join(reachable) or 'none'}.",
+        )
     return ConfigTestResult(
         ok=True,
         component="coordinator",
         latencyMs=elapsed_ms,
-        summary=(
-            f"Configured peers: {', '.join(configured)}. Live reachability "
-            "is probed once the pipeline-execution engine is implemented."
-        ),
+        summary=f"All {len(reachable)} configured peer(s) reachable: {', '.join(reachable)}.",
     )

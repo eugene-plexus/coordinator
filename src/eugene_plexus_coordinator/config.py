@@ -112,6 +112,10 @@ FIELDS: list[ConfigField] = [
         category="paths",
         valueType=ConfigValueType.file_path,
         default="coordinator-store",
+        # The pipeline-run store + interrupted-run recovery are bound to this
+        # directory at engine construction (startup), so a change only takes
+        # effect after a restart.
+        requiresRestart=True,
     ),
     ConfigField(
         key="logLevel",
@@ -270,7 +274,7 @@ class ConfigStore:
                     pending_restart.append(key)
 
             if applied:
-                self._write_locked()
+                self._write_applied_locked(applied)
 
             requires_restart = bool(self._pending_restart)
             return ConfigUpdateResult(
@@ -288,3 +292,25 @@ class ConfigStore:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         with self._path.open("w", encoding="utf-8") as f:
             yaml.safe_dump(self._values, f, sort_keys=True, default_flow_style=False)
+
+    def _write_applied_locked(self, applied: list[str]) -> None:
+        """Persist a PATCH by MERGING the applied keys onto the existing file.
+
+        Critically for safe mode: when the on-disk config was never loaded into
+        memory (safe mode boots on defaults), a wholesale dump of `self._values`
+        would silently revert every key the operator didn't touch back to its
+        default — destroying their saved config on the very recovery path meant
+        to preserve it. Merging only the applied keys onto the file keeps the
+        operator's other settings intact. In normal mode this is equivalent (on
+        disk already holds the loaded values).
+        """
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        on_disk: dict[str, Any] = {}
+        if self._path.exists():
+            raw = yaml.safe_load(self._path.read_text(encoding="utf-8")) or {}
+            if isinstance(raw, dict):
+                on_disk = raw
+        for key in applied:
+            on_disk[key] = self._values[key]
+        with self._path.open("w", encoding="utf-8") as f:
+            yaml.safe_dump(on_disk, f, sort_keys=True, default_flow_style=False)
