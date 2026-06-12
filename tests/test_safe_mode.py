@@ -72,3 +72,44 @@ def test_patch_config_writes_to_disk_in_safe_mode(
 
     on_disk = yaml.safe_load(safe_mode_settings.config_file.read_text(encoding="utf-8"))
     assert on_disk["logLevel"] == "WARNING"
+
+
+def test_patch_in_safe_mode_preserves_other_disk_values(
+    safe_mode_client: TestClient, safe_mode_settings: Settings
+) -> None:
+    # Safe mode boots on defaults (the on-disk file is NOT loaded into memory).
+    # A single-key PATCH must not silently revert the operator's other saved
+    # settings — the recovery path depends on the repair surviving the reboot.
+    response = safe_mode_client.patch("/v1/config", json={"logLevel": "WARNING"})
+    assert response.status_code == 200
+
+    on_disk = yaml.safe_load(safe_mode_settings.config_file.read_text(encoding="utf-8"))
+    assert on_disk["logLevel"] == "WARNING"
+    # The pre-existing trainerUrl from the fixture's disk file is preserved.
+    assert on_disk["trainerUrl"] == "http://disk-value:9999"
+
+
+def test_start_pipeline_503_in_safe_mode(safe_mode_client: TestClient) -> None:
+    # Project CRUD stays live in safe mode...
+    created = safe_mode_client.post(
+        "/v1/coordinator/projects",
+        json={
+            "projectId": "00000000-0000-0000-0000-000000000000",
+            "name": "p",
+            "goal": "pretrain_from_scratch",
+            "createdAt": "2026-06-12T00:00:00Z",
+        },
+    )
+    assert created.status_code == 201
+    project_id = created.json()["projectId"]
+    # ...but the pipeline engine is unavailable -> 503.
+    response = safe_mode_client.post(f"/v1/coordinator/projects/{project_id}/pipeline")
+    assert response.status_code == 503
+
+
+def test_config_test_reports_safe_mode(safe_mode_client: TestClient) -> None:
+    response = safe_mode_client.post("/v1/config/test", json={})
+    assert response.status_code == 200
+    body = response.json()
+    # disk had trainerUrl but safe mode boots on defaults (no peers) -> not ok.
+    assert body["ok"] is False

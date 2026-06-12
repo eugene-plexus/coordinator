@@ -1,4 +1,10 @@
-"""Pytest fixtures shared across the test suite."""
+"""Pytest fixtures shared across the test suite.
+
+The default `client` fixture wires a fake peer client into the pipeline engine
+(no network) with fast poll/timeout settings, and seeds `trainerUrl` so the
+config/health tests see a configured, reachable peer. Pipeline tests that need
+all four peers configured build their own client (see test_pipeline.py).
+"""
 
 from __future__ import annotations
 
@@ -12,6 +18,16 @@ from fastapi.testclient import TestClient
 
 from eugene_plexus_coordinator.app import create_app
 from eugene_plexus_coordinator.settings import Settings
+
+from .fakes import FakePeerClient
+
+# Fast engine timings so worker threads finish within a test.
+ENGINE_OVERRIDES = {"poll_interval": 0.01, "stage_timeout": 10.0, "max_workers": 2}
+
+
+@pytest.fixture
+def fake_peer() -> FakePeerClient:
+    return FakePeerClient()
 
 
 @pytest.fixture
@@ -31,8 +47,11 @@ def settings(tmp_path: Path) -> Settings:
 
 
 @pytest.fixture
-def app(settings: Settings) -> FastAPI:
-    return create_app(settings=settings)
+def app(settings: Settings, fake_peer: FakePeerClient) -> FastAPI:
+    app = create_app(settings=settings)
+    app.state.peer_client_override = fake_peer
+    app.state.engine_overrides = ENGINE_OVERRIDES
+    return app
 
 
 @pytest.fixture

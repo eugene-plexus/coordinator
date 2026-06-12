@@ -1,9 +1,8 @@
 """Tests for /healthz.
 
-The v0.3 coordinator skeleton ships no pipeline-execution engine —
-`app.state.engine` is None — so honest health is `degraded` with an
-explanatory `engine_error`. Project CRUD is live regardless. When the
-pipeline engine lands, a successfully-built engine flips this to `ok`.
+With the pipeline-execution engine built at startup (torch-free construction),
+a normally-started coordinator reports `ok`. The degraded path (engine unbuilt)
+is covered by test_safe_mode.py.
 """
 
 from __future__ import annotations
@@ -19,11 +18,9 @@ def test_healthz_is_reachable_and_well_formed(client: TestClient) -> None:
     assert "version" in body
 
 
-def test_healthz_reports_degraded_in_skeleton(client: TestClient) -> None:
+def test_healthz_reports_ok_when_engine_built(client: TestClient) -> None:
     response = client.get("/healthz")
     assert response.status_code == 200
     body = response.json()
-    # No pipeline-execution engine yet -> degraded, with an explanatory detail.
-    assert body["status"] == "degraded"
+    assert body["status"] == "ok"
     assert body["safeMode"] is False
-    assert "engine" in body["details"]["engine_error"]
